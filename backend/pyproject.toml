@@ -1,0 +1,68 @@
+[project]
+name = "nyaysetu-backend"
+version = "0.1.0"
+description = "NyaySetu – Multi-tenant SaaS backend for Indian revenue-law firms"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.1",
+    "sqlalchemy[asyncio]==2.0.36",
+    "asyncpg==0.30.0",
+    "alembic==1.14.1",
+    "redis[hiredis]==5.2.1",
+    "celery[redis]==5.4.0",
+    "boto3==1.35.86",
+    "structlog==24.4.0",
+    "orjson==3.10.13",
+    "uuid-utils==0.10.0",
+    "httpx==0.28.1",
+    "python-multipart==0.0.20",
+    "argon2-cffi==23.1.0",
+    "pyjwt[crypto]==2.10.1",
+    "pyotp==2.9.0",
+    "email-validator>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-cov==6.0.0",
+    "httpx==0.28.1",
+    "ruff==0.8.6",
+    "mypy==1.14.1",
+    "pre-commit==4.0.1",
+    "types-redis==4.6.0.20241004",
+    "sqlalchemy[mypy]==2.0.36",
+    "aiosqlite==0.20.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "DTZ", "T20", "RUF"]
+ignore = ["S101", "B008", "S105", "S106", "E501"]
+
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["error", "ignore::DeprecationWarning"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
