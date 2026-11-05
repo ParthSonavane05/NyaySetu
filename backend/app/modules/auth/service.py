@@ -13,7 +13,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid_utils import uuid7
 
-from app.core.adapters import AuditServiceStub, get_email_sender, get_sms_sender
+from app.core.adapters import get_email_sender, get_sms_sender
+from app.modules.audit import actions as A
+from app.modules.audit.service import AuditService
 from app.core.auth_crypto import (
     ACCESS_TOKEN_LIFETIME,
     MFA_CHALLENGE_LIFETIME,
@@ -158,11 +160,11 @@ class AuthService:
         self.db.add(membership)
         await self.db.flush()
 
-        await AuditServiceStub.record(
+        await AuditService(self.db).record(
             firm_id=firm.id,
             actor_id=user.id,
             actor_role="admin",
-            action="firm.register",
+            action=A.AUTH_FIRM_REGISTERED,
             resource_type="firm",
             resource_id=firm.id,
             ip=ip,
@@ -247,6 +249,17 @@ class AuthService:
             device_info=device_info,
             mfa_completed=False,
         )
+        if firm_id:
+            await AuditService(self.db).record(
+                firm_id=firm_id,
+                actor_id=user.id,
+                actor_role=role,
+                action=A.AUTH_LOGIN_SUCCESS,
+                resource_type="user",
+                resource_id=user.id,
+                ip=ip,
+                user_agent=device_info,
+            )
         return {"mfa_required": False, "tokens": tokens, "refresh_token": refresh_token}
 
     # ── MFA Verify ──
@@ -306,7 +319,7 @@ class AuthService:
         # Consumed challenge
         await self.redis.delete(f"mfa_challenge:{challenge_id}")
 
-        return await self._issue_session_tokens(
+        result = await self._issue_session_tokens(
             user_id=user_id,
             firm_id=firm_id,
             role=role,
@@ -314,6 +327,17 @@ class AuthService:
             device_info=device_info,
             mfa_completed=True,
         )
+        if firm_id:
+            await AuditService(self.db).record(
+                firm_id=firm_id,
+                actor_id=user_id,
+                actor_role=role,
+                action=A.AUTH_MFA_VERIFIED,
+                resource_type="user",
+                resource_id=user_id,
+                ip=ip,
+            )
+        return result
 
     # ── Issue Session Tokens ──
 
@@ -473,7 +497,9 @@ class AuthService:
         uri = get_totp_uri(secret, user.email)
         return secret, uri
 
-    async def confirm_mfa_enroll(self, *, user_id: UUID, secret: str, code: str) -> list[str]:
+    async def confirm_mfa_enroll(
+        self, *, user_id: UUID, secret: str, code: str, firm_id: UUID | None = None, role: str | None = None
+    ) -> list[str]:
         if not verify_totp_code(secret, code):
             raise ValidationFailedError(detail="Invalid verification code.")
 
@@ -502,6 +528,15 @@ class AuthService:
         await self.db.execute(update(User).where(User.id == user_id).values(mfa_enabled=True))
         await self.db.flush()
 
+        if firm_id:
+            await AuditService(self.db).record(
+                firm_id=firm_id,
+                actor_id=user_id,
+                actor_role=role,
+                action=A.AUTH_MFA_ENROLLED,
+                resource_type="user",
+                resource_id=user_id,
+            )
         return recovery_codes
 
     # ── Password Reset Flow ──
@@ -633,6 +668,14 @@ class AuthService:
         invitation.accepted_at = datetime.now(UTC)
         await self.db.flush()
 
+        await AuditService(self.db).record(
+            firm_id=invitation.firm_id,
+            actor_id=user.id,
+            actor_role=invitation.role,
+            action=A.AUTH_INVITATION_ACCEPTED,
+            resource_type="user",
+            resource_id=user.id,
+        )
         return {"user_id": user.id, "firm_id": invitation.firm_id, "role": invitation.role}
 
     # ── Client OTP Login ──
@@ -732,13 +775,23 @@ class AuthService:
             for s in rows
         ]
 
-    async def revoke_session(self, *, user_id: UUID, session_id: UUID) -> None:
+    async def revoke_session(self, *, user_id: UUID, session_id: UUID, firm_id: UUID | None = None) -> None:
         stmt = select(Session).where(Session.id == session_id, Session.user_id == user_id)
         session = (await self.db.execute(stmt)).scalar_one_or_none()
         if not session:
             raise NotFoundError(detail="Session not found.")
+        actual_firm_id = firm_id or session.firm_id
         session.revoked_at = datetime.now(UTC)
         await self.db.flush()
+        if actual_firm_id:
+            await AuditService(self.db).record(
+                firm_id=actual_firm_id,
+                actor_id=user_id,
+                actor_role=None,
+                action=A.AUTH_SESSION_REVOKED,
+                resource_type="session",
+                resource_id=session_id,
+            )
 
     async def revoke_all_sessions(self, user_id: UUID) -> None:
         await self.db.execute(

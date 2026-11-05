@@ -14,6 +14,7 @@ from app.core.db import dispose_engine
 from app.core.errors import DomainError, domain_exception_handler, unhandled_exception_handler
 from app.core.logging import setup_logging
 from app.core.middleware import AccessLogMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from app.modules.audit.router import router as audit_router
 from app.modules.auth.router import router as auth_router
 from app.modules.firms.router import router as firms_router
 from app.modules.health.router import router as health_router
@@ -62,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(firms_router, prefix="/api/v1")
+    app.include_router(audit_router, prefix="/api/v1")
 
     return app
 

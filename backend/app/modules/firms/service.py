@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_crypto import hash_token
 from app.core.errors import ConflictError, NotFoundError
+from app.modules.audit import actions as A
+from app.modules.audit.service import AuditService
 from app.core.models import (
     AdvocateProfile,
     Firm,
@@ -34,8 +36,32 @@ from app.modules.firms.schemas import (
 
 
 class FirmService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, actor_id: UUID | None = None, actor_role: str | None = None) -> None:
         self.db = db
+        self.actor_id = actor_id
+        self.actor_role = actor_role
+
+    async def _audit(
+        self,
+        *,
+        firm_id: UUID,
+        action: str,
+        resource_type: str | None = None,
+        resource_id: UUID | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Record audit event inside the current transaction."""
+        if not self.actor_id:
+            return
+        await AuditService(self.db).record(
+            firm_id=firm_id,
+            actor_id=self.actor_id,
+            actor_role=self.actor_role,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            metadata=metadata,
+        )
 
     # ── Firm Settings (GET/PATCH /firm) ──
 
